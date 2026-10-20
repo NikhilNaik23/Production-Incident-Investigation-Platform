@@ -1,0 +1,118 @@
+
+services:
+  order-service:
+    build: ./services/order-service
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      PAYMENT_URL: http://payment-service:3002
+      INVENTORY_URL: http://inventory-service:3003
+      REQUEST_TIMEOUT_MS: 2500
+    depends_on:
+      - payment-service
+      - inventory-service
+    networks:
+      - incident-net
+
+  payment-service:
+    build: ./services/payment-service
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: 3002
+      PAYMENT_FAIL: ${PAYMENT_FAIL:-false}
+      PAYMENT_DELAY_MS: ${PAYMENT_DELAY_MS:-0}
+    networks:
+      - incident-net
+
+  inventory-service:
+    build: ./services/inventory-service
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: 3003
+      INVENTORY_FAIL: ${INVENTORY_FAIL:-false}
+      INVENTORY_DELAY_MS: ${INVENTORY_DELAY_MS:-0}
+    networks:
+      - incident-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.143.0
+    command:
+      - "--config=/etc/otelcol-contrib/otel-collector.yml"
+    volumes:
+      - ./observability/otel/otel-collector.yml:/etc/otelcol-contrib/otel-collector.yml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - incident-net
+
+  prometheus:
+    image: prom/prometheus:v3.8.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - incident-net
+
+  grafana:
+    image: grafana/grafana:12.3.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: incidentadmin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - incident-net
+    
+  
+  jaeger:
+    image: jaegertracing/jaeger:2.14.1
+    ports:
+      - "16686:16686"
+      - "4319:4317"
+    networks:
+      - incident-net
+
+  loki:
+    image: grafana/loki:3.5.0
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    networks:
+      - incident-net
+
+  alloy:
+    image: grafana/alloy:v1.10.2
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    ports:
+      - "12345:12345"
+    networks:
+      - incident-net
+
+
+networks:
+  incident-net:
+    driver: bridge
+
+volumes:
+  grafana-data:
+  loki-data:
